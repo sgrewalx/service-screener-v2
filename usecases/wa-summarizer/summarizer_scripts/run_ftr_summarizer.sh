@@ -293,7 +293,7 @@ main() {
     echo -e "${YELLOW}🤖 Sending request to Kiro...${NC}"
 
     kiro-cli settings chat.defaultModel claude-sonnet-4.5
-    kiro-cli chat --trust-all-tools @${prompt_filename}
+    kiro-cli chat @"${prompt_file}"
     
     # Check if the command was successful
     if [ $? -eq 0 ]; then
