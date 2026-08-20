@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import sys
+from collections import Counter
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,8 @@ class ReportHTMLParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.ids: list[str] = []
+        self.tags: Counter[str] = Counter()
+        self.classes: Counter[str] = Counter()
         self.id_text: dict[str, str] = {}
         self._capture_id_stack: list[str] = []
         self.appendix_entries = 0
@@ -52,6 +55,8 @@ class ReportHTMLParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attr = dict(attrs)
+        self.tags[tag] += 1
+        self.classes.update((attr.get("class") or "").split())
         element_id = attr.get("id")
         if element_id:
             self.ids.append(element_id)
@@ -204,6 +209,54 @@ def validate_severity_totals(parser: ReportHTMLParser, counts: dict[str, Any], e
     require(sum(actual.values()) == counts["non_compliant_check_findings"], "severity totals do not sum to non-compliant finding count", errors)
 
 
+def validate_aws_shell_and_framework_table(
+    text: str,
+    parser: ReportHTMLParser,
+    data: dict[str, Any],
+    errors: list[str],
+) -> None:
+    """Check that the generated presentation remains the local AWS FTR family."""
+
+    required_markers = (
+        '<body class="hold-transition sidebar-mini layout-fixed">',
+        'main-header navbar navbar-expand navbar-white navbar-light',
+        'main-sidebar sidebar-dark-primary elevation-4',
+        'content-wrapper',
+        'content-header',
+        'section class="content"',
+        'container-fluid',
+        'main-footer',
+    )
+    for marker in required_markers:
+        require(marker in text, f"AWS FTR shell marker missing: {marker}", errors)
+
+    for class_name in ("nav-sidebar", "nav-header", "card", "card-warning", "card-header", "card-title", "card-body"):
+        require(parser.classes[class_name] > 0, f"AWS FTR class {class_name!r} is missing", errors)
+
+    for element_id in ("Framework", "FTR-SummaryDoughnut", "FTR-SummaryBarChart", "FTR", "screener-framework"):
+        require(parser.ids.count(element_id) == 1, f"AWS FTR element id {element_id!r} must appear exactly once", errors)
+
+    framework_rows = parser.tables.get("screener-framework", [])
+    categories = generate_ftr_report.get_ftr(data)["categories"]
+    require(len(framework_rows) == len(categories) + 1, f"framework detail table has {len(framework_rows) - 1} data rows instead of {len(categories)}", errors)
+    if not framework_rows:
+        return
+    require(framework_rows[0] == ["Category", "Rule ID", "Compliance Status", "Description", "Reference"], "framework detail table header does not match AWS FTR", errors)
+    for index, (actual_row, source_row) in enumerate(zip(framework_rows[1:], categories), start=1):
+        require(len(actual_row) == 5, f"framework detail row {index} has {len(actual_row)} cells instead of 5", errors)
+        if len(actual_row) < 3:
+            continue
+        expected = [
+            generate_ftr_report.as_text(source_row.get("categoryName")) or generate_ftr_report.NOT_PROVIDED,
+            generate_ftr_report.as_text(source_row.get("ruleId")) or generate_ftr_report.NOT_PROVIDED,
+            generate_ftr_report.as_text(source_row.get("complianceStatus")) or generate_ftr_report.NOT_PROVIDED,
+        ]
+        require(actual_row[:3] == expected, f"framework detail row {index} {actual_row[:3]} != source {expected}", errors)
+
+    require("<link" not in text.lower(), "generated report must inline the local AWS/AdminLTE CSS assets", errors)
+    require("../res/" not in text, "generated report must not depend on relative AWS asset paths", errors)
+
+
 def validate_forbidden_text(text: str, errors: list[str]) -> None:
     lowered = text.lower()
     for indicator in DEFECTIVE_INDICATORS:
@@ -253,6 +306,7 @@ def validate(input_path: Path, report_path: Path) -> list[str]:
 
     validate_hash(input_path, parser, errors)
     validate_required_sections(parser, errors)
+    validate_aws_shell_and_framework_table(text, parser, data, errors)
     validate_appendix(parser, counts, errors)
     validate_category_totals(parser, counts, errors)
     validate_severity_totals(parser, counts, errors)

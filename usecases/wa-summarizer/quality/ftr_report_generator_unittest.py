@@ -153,9 +153,18 @@ class FTRReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             input_path, output_path, _ = self.generate(Path(tmp))
             report = output_path.read_text(encoding="utf-8")
-            output_path.write_text(report.replace("</main>", '<div id="metrics"></div></main>'), encoding="utf-8")
+            output_path.write_text(report.replace("</body>", '<div id="metrics"></div></body>'), encoding="utf-8")
             errors = validate_ftr_report.validate(input_path, output_path)
             self.assertTrue(any("metrics" in error or "unique" in error for error in errors))
+
+    def test_aws_ftr_shell_markers_are_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            input_path, output_path, _ = self.generate(Path(tmp))
+            report = output_path.read_text(encoding="utf-8")
+            self.assertIn("main-sidebar sidebar-dark-primary elevation-4", report)
+            self.assertIn("main-header navbar navbar-expand navbar-white navbar-light", report)
+            self.assertIn('id="screener-framework"', report)
+            self.assertEqual(validate_ftr_report.validate(input_path, output_path), [])
 
     def test_placeholder_detection(self):
         with tempfile.TemporaryDirectory() as tmp:

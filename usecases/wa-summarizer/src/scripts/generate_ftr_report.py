@@ -33,7 +33,7 @@ from typing import Any, Iterable
 
 
 SCRIPT_RELATIVE_PATH = "usecases/wa-summarizer/src/scripts/generate_ftr_report.py"
-GENERATOR_VERSION = f"{SCRIPT_RELATIVE_PATH}:1"
+GENERATOR_VERSION = f"{SCRIPT_RELATIVE_PATH}:2"
 NOT_PROVIDED = "Not provided in source data"
 
 STATUS_LABELS = {
@@ -408,6 +408,16 @@ def render_report(
     input_hash: str,
     generated_at: str,
 ) -> tuple[str, dict[str, Any]]:
+    # Keep the data model and deterministic count semantics in this module,
+    # while delegating presentation to a template built from the local AWS FTR
+    # reference report and its checked-in AdminLTE assets.
+    from aws_ftr_template import render_report as render_aws_report
+
+    return render_aws_report(data, input_path, input_hash, generated_at)
+
+    # The original renderer is retained below as a historical fallback while
+    # the AWS-derived template is exercised and verified. It is unreachable by
+    # design; keeping it here minimizes unrelated model churn in this fix.
     counts = compute_counts(data)
     summary = counts["summary"]
     total_requirements = summary["total_requirements"] or 1
